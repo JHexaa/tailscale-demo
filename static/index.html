@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tailscale Demo - Acceso VPN vs Publico</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Tailscale Demo</h1>
+            <p class="subtitle">Probando acceso VPN vs Publico (Funnel) + MinIO Storage</p>
+        </header>
+
+        <main>
+            <!-- Connection Status Card -->
+            <section class="card connection-card" id="connection-status">
+                <div class="card-header">
+                    <h2>Estado de Conexion</h2>
+                    <span class="badge loading" id="access-badge">Cargando...</span>
+                </div>
+                <div class="card-body">
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <label>Tipo de Acceso</label>
+                            <span id="access-type">-</span>
+                        </div>
+                        <div class="info-item">
+                            <label>Tu IP</label>
+                            <span id="client-ip">-</span>
+                        </div>
+                        <div class="info-item">
+                            <label>Hora del Servidor</label>
+                            <span id="server-time">-</span>
+                        </div>
+                        <div class="info-item full-width">
+                            <label>User Agent</label>
+                            <span id="user-agent" class="small-text">-</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Stats Card -->
+            <section class="card stats-card">
+                <div class="card-header">
+                    <h2>Estadisticas</h2>
+                </div>
+                <div class="card-body">
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <span class="stat-number" id="total-visitors">0</span>
+                            <span class="stat-label">Visitantes</span>
+                        </div>
+                        <div class="stat-item vpn">
+                            <span class="stat-number" id="vpn-visitors">0</span>
+                            <span class="stat-label">VPN</span>
+                        </div>
+                        <div class="stat-item public">
+                            <span class="stat-number" id="public-visitors">0</span>
+                            <span class="stat-label">Publico</span>
+                        </div>
+                        <div class="stat-item images">
+                            <span class="stat-number" id="total-images">0</span>
+                            <span class="stat-label">Imagenes</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Image Upload Card -->
+            <section class="card upload-card">
+                <div class="card-header">
+                    <h2>Subir Imagen</h2>
+                    <span class="badge-info">Max 5MB</span>
+                </div>
+                <div class="card-body">
+                    <div class="upload-area" id="upload-area">
+                        <input type="file" id="file-input" accept="image/jpeg,image/png,image/gif,image/webp" hidden>
+                        <div class="upload-content">
+                            <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="17 8 12 3 7 8"/>
+                                <line x1="12" y1="3" x2="12" y2="15"/>
+                            </svg>
+                            <p>Arrastra una imagen aqui o <span class="upload-link">selecciona un archivo</span></p>
+                            <p class="upload-hint">JPEG, PNG, GIF, WebP (max 5MB)</p>
+                        </div>
+                    </div>
+                    <div id="upload-progress" class="upload-progress hidden">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progress-fill"></div>
+                        </div>
+                        <p id="upload-status">Subiendo...</p>
+                    </div>
+                    <p id="upload-message" class="action-message"></p>
+                </div>
+            </section>
+
+            <!-- Image Gallery Card -->
+            <section class="card gallery-card">
+                <div class="card-header">
+                    <h2>Galeria de Imagenes</h2>
+                    <button class="btn btn-small" onclick="fetchImages()">Actualizar</button>
+                </div>
+                <div class="card-body">
+                    <div class="gallery" id="gallery">
+                        <p class="loading-cell">Cargando imagenes...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Actions Card -->
+            <section class="card">
+                <div class="card-header">
+                    <h2>Acciones</h2>
+                </div>
+                <div class="card-body">
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="registerVisit()">
+                            Registrar mi Visita
+                        </button>
+                        <button class="btn btn-secondary" onclick="refreshData()">
+                            Actualizar Todo
+                        </button>
+                    </div>
+                    <p id="action-message" class="action-message"></p>
+                </div>
+            </section>
+
+            <!-- Recent Visitors Card -->
+            <section class="card">
+                <div class="card-header">
+                    <h2>Visitantes Recientes</h2>
+                </div>
+                <div class="card-body">
+                    <div class="table-container">
+                        <table id="visitors-table">
+                            <thead>
+                                <tr>
+                                    <th>IP</th>
+                                    <th>Tipo</th>
+                                    <th>Fecha</th>
+                                </tr>
+                            </thead>
+                            <tbody id="visitors-body">
+                                <tr>
+                                    <td colspan="3" class="loading-cell">Cargando...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- API Endpoints Card -->
+            <section class="card">
+                <div class="card-header">
+                    <h2>API Endpoints</h2>
+                </div>
+                <div class="card-body">
+                    <ul class="endpoint-list">
+                        <li>
+                            <code>GET /api/info</code>
+                            <span>Informacion de conexion</span>
+                        </li>
+                        <li>
+                            <code>GET /api/health</code>
+                            <span>Estado del servidor</span>
+                        </li>
+                        <li>
+                            <code>GET /api/visitors</code>
+                            <span>Lista de visitantes</span>
+                        </li>
+                        <li>
+                            <code>POST /api/visitors</code>
+                            <span>Registrar visita</span>
+                        </li>
+                        <li>
+                            <code>GET /api/stats</code>
+                            <span>Estadisticas</span>
+                        </li>
+                        <li>
+                            <code>POST /api/images</code>
+                            <span>Subir imagen (form-data: file)</span>
+                        </li>
+                        <li>
+                            <code>GET /api/images</code>
+                            <span>Lista de imagenes</span>
+                        </li>
+                        <li>
+                            <code>DELETE /api/images/{id}</code>
+                            <span>Eliminar imagen</span>
+                        </li>
+                    </ul>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>Demo de Tailscale Serve + Funnel | FastAPI + PostgreSQL + MinIO + Docker</p>
+        </footer>
+    </div>
+
+    <!-- Image Modal -->
+    <div id="image-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeModal()">&times;</span>
+            <img id="modal-image" src="" alt="Preview">
+            <div class="modal-info">
+                <p id="modal-filename"></p>
+                <p id="modal-size"></p>
+                <p id="modal-date"></p>
+                <button class="btn btn-danger btn-small" id="modal-delete-btn">Eliminar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Fetch connection info on load
+        async function fetchConnectionInfo() {
+            try {
+                const response = await fetch('/api/info');
+                const data = await response.json();
+
+                document.getElementById('access-type').textContent = data.access_label;
+                document.getElementById('client-ip').textContent = data.ip_address;
+                document.getElementById('server-time').textContent = new Date(data.server_time).toLocaleString('es-ES');
+                document.getElementById('user-agent').textContent = data.user_agent;
+
+                const badge = document.getElementById('access-badge');
+                badge.classList.remove('loading');
+
+                if (data.is_vpn) {
+                    badge.textContent = 'VPN';
+                    badge.classList.add('vpn');
+                    document.getElementById('connection-status').classList.add('vpn-connected');
+                } else {
+                    badge.textContent = 'PUBLICO';
+                    badge.classList.add('public');
+                    document.getElementById('connection-status').classList.add('public-connected');
+                }
+            } catch (error) {
+                console.error('Error fetching connection info:', error);
+                document.getElementById('access-badge').textContent = 'Error';
+            }
+        }
+
+        // Fetch stats
+        async function fetchStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+
+                document.getElementById('total-visitors').textContent = data.total_visitors;
+                document.getElementById('vpn-visitors').textContent = data.vpn_visitors;
+                document.getElementById('public-visitors').textContent = data.public_visitors;
+                document.getElementById('total-images').textContent = data.total_images;
+            } catch (error) {
+                console.error('Error fetching stats:', error);
+            }
+        }
+
+        // Fetch visitors
+        async function fetchVisitors() {
+            try {
+                const response = await fetch('/api/visitors?limit=10');
+                const visitors = await response.json();
+
+                const tbody = document.getElementById('visitors-body');
+
+                if (visitors.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="3" class="empty-cell">No hay visitantes registrados</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = visitors.map(visitor => `
+                    <tr>
+                        <td><code>${visitor.ip_address}</code></td>
+                        <td>
+                            <span class="badge-small ${visitor.access_type}">
+                                ${visitor.access_type === 'vpn' ? 'VPN' : 'Publico'}
+                            </span>
+                        </td>
+                        <td>${new Date(visitor.timestamp).toLocaleString('es-ES')}</td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                console.error('Error fetching visitors:', error);
+                document.getElementById('visitors-body').innerHTML =
+                    '<tr><td colspan="3" class="error-cell">Error al cargar visitantes</td></tr>';
+            }
+        }
+
+        // Fetch images
+        async function fetchImages() {
+            try {
+                const response = await fetch('/api/images?limit=20');
+                const data = await response.json();
+
+                const gallery = document.getElementById('gallery');
+
+                if (data.images.length === 0) {
+                    gallery.innerHTML = '<p class="empty-cell">No hay imagenes subidas</p>';
+                    return;
+                }
+
+                gallery.innerHTML = data.images.map(img => `
+                    <div class="gallery-item" onclick="openModal(${img.id}, '${img.url}', '${img.original_filename}', ${img.file_size}, '${img.uploaded_at}')">
+                        <img src="${img.url}" alt="${img.original_filename}" loading="lazy">
+                        <div class="gallery-overlay">
+                            <span>${img.original_filename}</span>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error fetching images:', error);
+                document.getElementById('gallery').innerHTML = '<p class="error-cell">Error al cargar imagenes</p>';
+            }
+        }
+
+        // Register visit
+        async function registerVisit() {
+            const messageEl = document.getElementById('action-message');
+            try {
+                const response = await fetch('/api/visitors', { method: 'POST' });
+                const data = await response.json();
+
+                messageEl.textContent = `Visita registrada! IP: ${data.ip_address}, Tipo: ${data.access_type}`;
+                messageEl.className = 'action-message success';
+
+                fetchStats();
+                fetchVisitors();
+
+                setTimeout(() => {
+                    messageEl.textContent = '';
+                    messageEl.className = 'action-message';
+                }, 5000);
+            } catch (error) {
+                messageEl.textContent = 'Error al registrar visita';
+                messageEl.className = 'action-message error';
+            }
+        }
+
+        // Upload image
+        async function uploadImage(file) {
+            const progressDiv = document.getElementById('upload-progress');
+            const progressFill = document.getElementById('progress-fill');
+            const uploadStatus = document.getElementById('upload-status');
+            const messageEl = document.getElementById('upload-message');
+
+            // Validate file size
+            if (file.size > 5 * 1024 * 1024) {
+                messageEl.textContent = 'Error: El archivo excede 5MB';
+                messageEl.className = 'action-message error';
+                return;
+            }
+
+            progressDiv.classList.remove('hidden');
+            progressFill.style.width = '0%';
+            uploadStatus.textContent = 'Subiendo...';
+            messageEl.textContent = '';
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/api/images', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                progressFill.style.width = '100%';
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Error al subir imagen');
+                }
+
+                const data = await response.json();
+
+                uploadStatus.textContent = 'Completado!';
+                messageEl.textContent = `Imagen "${data.image.original_filename}" subida correctamente`;
+                messageEl.className = 'action-message success';
+
+                fetchStats();
+                fetchImages();
+
+                setTimeout(() => {
+                    progressDiv.classList.add('hidden');
+                    messageEl.textContent = '';
+                    messageEl.className = 'action-message';
+                }, 3000);
+
+            } catch (error) {
+                uploadStatus.textContent = 'Error';
+                messageEl.textContent = error.message;
+                messageEl.className = 'action-message error';
+
+                setTimeout(() => {
+                    progressDiv.classList.add('hidden');
+                }, 3000);
+            }
+        }
+
+        // Delete image
+        async function deleteImage(imageId) {
+            if (!confirm('Estas seguro de eliminar esta imagen?')) return;
+
+            try {
+                const response = await fetch(`/api/images/${imageId}`, {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) {
+                    throw new Error('Error al eliminar imagen');
+                }
+
+                closeModal();
+                fetchStats();
+                fetchImages();
+
+            } catch (error) {
+                alert('Error al eliminar imagen: ' + error.message);
+            }
+        }
+
+        // Modal functions
+        function openModal(id, url, filename, size, date) {
+            const modal = document.getElementById('image-modal');
+            document.getElementById('modal-image').src = url;
+            document.getElementById('modal-filename').textContent = `Archivo: ${filename}`;
+            document.getElementById('modal-size').textContent = `Tamano: ${formatFileSize(size)}`;
+            document.getElementById('modal-date').textContent = `Subido: ${new Date(date).toLocaleString('es-ES')}`;
+            document.getElementById('modal-delete-btn').onclick = () => deleteImage(id);
+            modal.classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('image-modal').classList.add('hidden');
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+        }
+
+        // Refresh all data
+        function refreshData() {
+            fetchConnectionInfo();
+            fetchStats();
+            fetchVisitors();
+            fetchImages();
+        }
+
+        // Upload area event listeners
+        document.addEventListener('DOMContentLoaded', () => {
+            const uploadArea = document.getElementById('upload-area');
+            const fileInput = document.getElementById('file-input');
+
+            // Click to upload
+            uploadArea.addEventListener('click', () => fileInput.click());
+
+            // File selected
+            fileInput.addEventListener('change', (e) => {
+                if (e.target.files.length > 0) {
+                    uploadImage(e.target.files[0]);
+                    fileInput.value = '';
+                }
+            });
+
+            // Drag and drop
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('dragover');
+            });
+
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('dragover');
+            });
+
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+                if (e.dataTransfer.files.length > 0) {
+                    uploadImage(e.dataTransfer.files[0]);
+                }
+            });
+
+            // Close modal on outside click
+            document.getElementById('image-modal').addEventListener('click', (e) => {
+                if (e.target.id === 'image-modal') closeModal();
+            });
+
+            // Initial load
+            fetchConnectionInfo();
+            fetchStats();
+            fetchVisitors();
+            fetchImages();
+        });
+
+        // Auto-refresh every 30 seconds
+        setInterval(refreshData, 30000);
+    </script>
+</body>
+</html>
