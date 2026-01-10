@@ -108,7 +108,7 @@ def get_presigned_url(object_key: str, expiration: int = URL_EXPIRATION) -> str:
         # Replace internal Docker hostname with localhost for browser access
         # This will be adjusted based on actual deployment
         return url
-    except Exception as e:
+    except Exception:
         return ""
 
 
