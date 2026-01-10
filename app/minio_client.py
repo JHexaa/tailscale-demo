@@ -9,6 +9,8 @@ MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio:9000")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin123secure")
 MINIO_BUCKET = os.getenv("MINIO_BUCKET", "images")
+# Public URL for browser access (replaces internal Docker hostname)
+MINIO_PUBLIC_URL = os.getenv("MINIO_PUBLIC_URL", "http://localhost:9000")
 
 # URL expiration time in seconds (1 hour)
 URL_EXPIRATION = 3600
@@ -105,8 +107,10 @@ def get_presigned_url(object_key: str, expiration: int = URL_EXPIRATION) -> str:
             Params={"Bucket": MINIO_BUCKET, "Key": object_key},
             ExpiresIn=expiration,
         )
-        # Replace internal Docker hostname with localhost for browser access
-        # This will be adjusted based on actual deployment
+        # Replace internal Docker hostname with public URL for browser access
+        # e.g., http://minio:9000/... → http://100.122.110.55:9000/...
+        internal_url = f"http://{MINIO_ENDPOINT}"
+        url = url.replace(internal_url, MINIO_PUBLIC_URL)
         return url
     except Exception:
         return ""

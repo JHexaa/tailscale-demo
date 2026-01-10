@@ -26,7 +26,6 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          # Add host to known_hosts
           ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Test SSH connection
@@ -35,10 +34,10 @@ jobs:
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "echo 'SSH connection OK'"
 
       - name: Deploy to server
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
         run: |
-          ssh -o StrictHostKeyChecking=no \
-            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'ENDSSH'
-
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} 'bash -s' << 'ENDSSH'
           set -e
           echo "==> Starting deployment..."
 
@@ -51,14 +50,17 @@ jobs:
             echo "==> Cloning repository..."
             cd ~
             rm -rf tailscale-demo
-            git clone https://github.com/${{ github.repository }}.git tailscale-demo
+            git clone https://github.com/JHexaa/tailscale-demo.git tailscale-demo
             cd tailscale-demo
           fi
 
-          # Create .env if not exists
-          if [ ! -f .env ]; then
-            echo "==> Creating .env file..."
-            cat > .env << 'EOF'
+          # Get Tailscale IP for MinIO public URL
+          TS_IP=$(tailscale ip -4)
+          echo "==> Tailscale IP: $TS_IP"
+
+          # Create .env file with correct MinIO public URL
+          echo "==> Creating .env file..."
+          cat > .env << EOF
           POSTGRES_USER=tailscale_user
           POSTGRES_PASSWORD=tailscale_pass_2024
           POSTGRES_DB=tailscale_demo
@@ -66,9 +68,8 @@ jobs:
           MINIO_ACCESS_KEY=minioadmin
           MINIO_SECRET_KEY=minioadmin123secure
           MINIO_BUCKET=images
-          MINIO_PUBLIC_URL=http://localhost:9000
+          MINIO_PUBLIC_URL=http://${TS_IP}:9000
           EOF
-          fi
 
           echo "==> Building and deploying..."
           docker compose build --no-cache api
