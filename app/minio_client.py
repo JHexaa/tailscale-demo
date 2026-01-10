@@ -24,10 +24,22 @@ ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 
 
 def get_minio_client():
-    """Create and return a MinIO client using boto3."""
+    """Create and return a MinIO client using boto3 for internal operations."""
     return boto3.client(
         "s3",
         endpoint_url=f"http://{MINIO_ENDPOINT}",
+        aws_access_key_id=MINIO_ACCESS_KEY,
+        aws_secret_access_key=MINIO_SECRET_KEY,
+        config=Config(signature_version="s3v4"),
+        region_name="us-east-1",
+    )
+
+
+def get_minio_client_public():
+    """Create a MinIO client with public URL for generating presigned URLs."""
+    return boto3.client(
+        "s3",
+        endpoint_url=MINIO_PUBLIC_URL,
         aws_access_key_id=MINIO_ACCESS_KEY,
         aws_secret_access_key=MINIO_SECRET_KEY,
         config=Config(signature_version="s3v4"),
@@ -99,18 +111,15 @@ def get_presigned_url(object_key: str, expiration: int = URL_EXPIRATION) -> str:
     """
     Generate a presigned URL for accessing an image.
     The URL will expire after the specified time.
+    Uses the public URL endpoint so the signature matches the browser request.
     """
-    client = get_minio_client()
+    client = get_minio_client_public()
     try:
         url = client.generate_presigned_url(
             "get_object",
             Params={"Bucket": MINIO_BUCKET, "Key": object_key},
             ExpiresIn=expiration,
         )
-        # Replace internal Docker hostname with public URL for browser access
-        # e.g., http://minio:9000/... → http://100.122.110.55:9000/...
-        internal_url = f"http://{MINIO_ENDPOINT}"
-        url = url.replace(internal_url, MINIO_PUBLIC_URL)
         return url
     except Exception:
         return ""
