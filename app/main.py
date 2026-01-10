@@ -303,11 +303,16 @@ async def get_image_file(image_id: int, db: Session = Depends(get_db)):
     if data is None:
         raise HTTPException(status_code=404, detail="Image file not found")
 
+    # Sanitize filename for Content-Disposition header (ASCII only)
+    safe_filename = db_image.original_filename.encode("ascii", "ignore").decode("ascii")
+    if not safe_filename:
+        safe_filename = db_image.stored_filename
+
     return Response(
         content=data,
         media_type=content_type,
         headers={
             "Cache-Control": "public, max-age=3600",
-            "Content-Disposition": f"inline; filename=\"{db_image.original_filename}\""
+            "Content-Disposition": f"inline; filename=\"{safe_filename}\""
         }
     )
