@@ -135,6 +135,21 @@ def delete_image(object_key: str) -> tuple[bool, str]:
         return False, f"Delete failed: {str(e)}"
 
 
+def get_image_data(object_key: str) -> tuple[bytes | None, str | None]:
+    """
+    Get image data directly from MinIO.
+    Returns: (file_bytes, content_type) or (None, None) on error.
+    """
+    client = get_minio_client()
+    try:
+        response = client.get_object(Bucket=MINIO_BUCKET, Key=object_key)
+        data = response["Body"].read()
+        content_type = response.get("ContentType", "image/jpeg")
+        return data, content_type
+    except Exception:
+        return None, None
+
+
 def check_minio_health() -> tuple[bool, str]:
     """Check if MinIO is accessible."""
     try:

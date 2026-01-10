@@ -345,17 +345,19 @@ header h1 {
 /* Gallery */
 .gallery {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
     gap: 16px;
 }
 
 .gallery-item {
     position: relative;
-    aspect-ratio: 1;
+    width: 200px;
+    height: 200px;
     border-radius: 8px;
     overflow: hidden;
     cursor: pointer;
     transition: transform 0.2s;
+    background: var(--bg-color);
 }
 
 .gallery-item:hover {
@@ -454,6 +456,18 @@ header h1 {
 
 .modal-info p:last-of-type {
     margin-bottom: 12px;
+}
+
+.modal-buttons {
+    display: flex;
+    gap: 10px;
+}
+
+.modal-buttons .btn {
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 /* Table */

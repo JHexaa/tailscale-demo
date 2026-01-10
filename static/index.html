@@ -212,7 +212,10 @@
                 <p id="modal-filename"></p>
                 <p id="modal-size"></p>
                 <p id="modal-date"></p>
-                <button class="btn btn-danger btn-small" id="modal-delete-btn">Eliminar</button>
+                <div class="modal-buttons">
+                    <a id="modal-download-btn" class="btn btn-primary btn-small" href="" download>Descargar</a>
+                    <button class="btn btn-danger btn-small" id="modal-delete-btn">Eliminar</button>
+                </div>
             </div>
         </div>
     </div>
@@ -433,6 +436,8 @@
             document.getElementById('modal-filename').textContent = `Archivo: ${filename}`;
             document.getElementById('modal-size').textContent = `Tamano: ${formatFileSize(size)}`;
             document.getElementById('modal-date').textContent = `Subido: ${new Date(date).toLocaleString('es-ES')}`;
+            document.getElementById('modal-download-btn').href = url;
+            document.getElementById('modal-download-btn').download = filename;
             document.getElementById('modal-delete-btn').onclick = () => deleteImage(id);
             modal.classList.remove('hidden');
         }

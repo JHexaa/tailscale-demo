@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request, Depends, UploadFile, File, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 from datetime import datetime
 import re
@@ -196,8 +196,8 @@ async def upload_image(
 
     db_image = crud.create_image(db, image_data)
 
-    # Generate presigned URL
-    url = minio_client.get_presigned_url(stored_filename)
+    # Use proxy URL for universal access
+    url = f"/api/images/{db_image.id}/file"
 
     return schemas.ImageUploadResponse(
         success=True,
@@ -217,14 +217,15 @@ async def upload_image(
 
 @app.get("/api/images", response_model=schemas.ImageListResponse)
 async def get_images(skip: int = 0, limit: int = 50, db: Session = Depends(get_db)):
-    """Get list of uploaded images with presigned URLs."""
+    """Get list of uploaded images with proxy URLs (works for VPN and public)."""
     images = crud.get_images(db, skip=skip, limit=limit)
     total = crud.get_image_count(db)
 
-    # Generate presigned URLs for each image
+    # Use proxy URLs instead of presigned URLs for universal access
     image_responses = []
     for img in images:
-        url = minio_client.get_presigned_url(img.stored_filename)
+        # Proxy URL works for both VPN and public Funnel access
+        url = f"/api/images/{img.id}/file"
         image_responses.append(schemas.ImageResponse(
             id=img.id,
             original_filename=img.original_filename,
@@ -241,12 +242,12 @@ async def get_images(skip: int = 0, limit: int = 50, db: Session = Depends(get_d
 
 @app.get("/api/images/{image_id}", response_model=schemas.ImageResponse)
 async def get_image(image_id: int, db: Session = Depends(get_db)):
-    """Get a specific image by ID with presigned URL."""
+    """Get a specific image by ID with proxy URL."""
     db_image = crud.get_image_by_id(db, image_id)
     if not db_image:
         raise HTTPException(status_code=404, detail="Image not found")
 
-    url = minio_client.get_presigned_url(db_image.stored_filename)
+    url = f"/api/images/{db_image.id}/file"
 
     return schemas.ImageResponse(
         id=db_image.id,
@@ -276,3 +277,27 @@ async def delete_image(image_id: int, db: Session = Depends(get_db)):
     crud.delete_image(db, image_id)
 
     return {"success": True, "message": "Image deleted successfully"}
+
+
+@app.get("/api/images/{image_id}/file")
+async def get_image_file(image_id: int, db: Session = Depends(get_db)):
+    """
+    Proxy endpoint to serve images directly.
+    This allows public access via Funnel without exposing MinIO.
+    """
+    db_image = crud.get_image_by_id(db, image_id)
+    if not db_image:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    data, content_type = minio_client.get_image_data(db_image.stored_filename)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Image file not found")
+
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={
+            "Cache-Control": "public, max-age=3600",
+            "Content-Disposition": f"inline; filename=\"{db_image.original_filename}\""
+        }
+    )
