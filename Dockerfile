@@ -1,3 +1,22 @@
+# Stage 1: Build React frontend
+FROM node:20-alpine AS frontend-builder
+
+WORKDIR /frontend
+
+# Copy package files
+COPY frontend/package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy frontend source
+COPY frontend/ ./
+
+# Build frontend
+RUN npm run build
+
+
+# Stage 2: Python backend
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -16,6 +35,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY app/ ./app/
+
+# Copy React build from frontend stage
+COPY --from=frontend-builder /frontend/dist ./frontend/dist
+
+# Keep old static for fallback
 COPY static/ ./static/
 
 # Expose port

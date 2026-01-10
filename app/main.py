@@ -4,6 +4,7 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 from datetime import datetime
 import re
+import os
 
 from . import models, schemas, crud
 from .database import engine, get_db
@@ -18,8 +19,15 @@ app = FastAPI(
     version="2.0.0"
 )
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Determine frontend path (React build or fallback to old static)
+FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
+STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+
+# Mount React assets if available, otherwise fallback to static
+if os.path.exists(FRONTEND_DIR):
+    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIR, "assets")), name="assets")
+else:
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 def get_client_ip(request: Request) -> str:
@@ -66,8 +74,10 @@ def get_tailscale_headers(request: Request) -> dict:
 
 @app.get("/", response_class=FileResponse)
 async def root():
-    """Serve the main HTML page."""
-    return FileResponse("static/index.html")
+    """Serve the main HTML page (React build or fallback)."""
+    if os.path.exists(FRONTEND_DIR):
+        return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
+    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
 
 # ============== CONNECTION INFO ==============

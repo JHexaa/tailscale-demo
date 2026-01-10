@@ -36,3 +36,8 @@ docker-compose.override.yml
 # Temp files
 *.tar.gz
 *.tmp
+
+# Node.js / Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
