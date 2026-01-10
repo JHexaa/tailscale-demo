@@ -3,18 +3,12 @@ name: CD - Deploy to Server
 on:
   push:
     branches: [main]
-  workflow_dispatch:  # Permite ejecutar manualmente
-
-env:
-  DEPLOY_PATH: ~/tailscale-demo
+  workflow_dispatch:
 
 jobs:
   deploy:
     name: Deploy to Proxmox VM
     runs-on: ubuntu-latest
-
-    # Solo ejecutar si CI pasa
-    needs: []  # Puedes agregar dependencia al CI si lo deseas
 
     steps:
       - name: Checkout code
@@ -27,96 +21,70 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
-      - name: Create deployment package
-        run: |
-          tar -czvf deploy.tar.gz \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='__pycache__' \
-            --exclude='*.pyc' \
-            --exclude='.env.local' \
-            --exclude='tests' \
-            .
-
-      - name: Copy files to server
+      - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
+          # Add host to known_hosts
           ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
-          scp -o StrictHostKeyChecking=no deploy.tar.gz \
-            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/deploy.tar.gz
+      - name: Test SSH connection
+        run: |
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "echo 'SSH connection OK'"
 
-      - name: Deploy on server
+      - name: Deploy to server
         run: |
           ssh -o StrictHostKeyChecking=no \
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'ENDSSH'
 
           set -e
+          echo "==> Starting deployment..."
 
-          echo "==> Creating backup..."
-          if [ -d ~/tailscale-demo ]; then
-            cp -r ~/tailscale-demo ~/tailscale-demo-backup-$(date +%Y%m%d_%H%M%S)
+          cd ~/tailscale-demo || { mkdir -p ~/tailscale-demo && cd ~/tailscale-demo; }
+
+          if [ -d .git ]; then
+            echo "==> Pulling latest changes..."
+            git pull origin main
+          else
+            echo "==> Cloning repository..."
+            cd ~
+            rm -rf tailscale-demo
+            git clone https://github.com/${{ github.repository }}.git tailscale-demo
+            cd tailscale-demo
           fi
 
-          echo "==> Extracting new files..."
-          mkdir -p ~/tailscale-demo
-          tar -xzvf ~/deploy.tar.gz -C ~/tailscale-demo
-          rm ~/deploy.tar.gz
-
-          echo "==> Deploying with Docker Compose..."
-          cd ~/tailscale-demo
-
-          # Crear .env si no existe (usa variables de GitHub Secrets)
+          # Create .env if not exists
           if [ ! -f .env ]; then
-            cat > .env << 'ENVEOF'
+            echo "==> Creating .env file..."
+            cat > .env << 'EOF'
           POSTGRES_USER=tailscale_user
-          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_PASSWORD=tailscale_pass_2024
           POSTGRES_DB=tailscale_demo
-          DATABASE_URL=postgresql://tailscale_user:${{ secrets.POSTGRES_PASSWORD }}@db:5432/tailscale_demo
-          MINIO_ACCESS_KEY=${{ secrets.MINIO_ACCESS_KEY }}
-          MINIO_SECRET_KEY=${{ secrets.MINIO_SECRET_KEY }}
+          DATABASE_URL=postgresql://tailscale_user:tailscale_pass_2024@db:5432/tailscale_demo
+          MINIO_ACCESS_KEY=minioadmin
+          MINIO_SECRET_KEY=minioadmin123secure
           MINIO_BUCKET=images
           MINIO_PUBLIC_URL=http://localhost:9000
-          ENVEOF
+          EOF
           fi
 
-          echo "==> Pulling latest images..."
-          docker compose pull db minio || true
-
-          echo "==> Building API image..."
+          echo "==> Building and deploying..."
           docker compose build --no-cache api
-
-          echo "==> Restarting services..."
-          docker compose down
           docker compose up -d
 
-          echo "==> Waiting for services to be ready..."
+          echo "==> Waiting for services..."
           sleep 10
 
           echo "==> Health check..."
           curl -s http://localhost:8000/api/health || echo "Health check pending..."
-
-          echo "==> Cleaning up old images..."
-          docker image prune -f
 
           echo "==> Deployment complete!"
           ENDSSH
 
       - name: Verify deployment
         run: |
-          sleep 5
           ssh -o StrictHostKeyChecking=no \
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
-            "curl -s http://localhost:8000/api/health | head -c 200"
-
-      - name: Cleanup on failure
-        if: failure()
-        run: |
-          ssh -o StrictHostKeyChecking=no \
-            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'ENDSSH'
-          echo "==> Deployment failed, checking logs..."
-          cd ~/tailscale-demo
-          docker compose logs --tail=50
-          ENDSSH
+            "curl -s http://localhost:8000/api/health"
