@@ -19,15 +19,14 @@ export class PrismaService
       throw new Error('cleanDatabase is not allowed in production');
     }
 
-    const models = Reflect.ownKeys(this).filter(
-      (key) => typeof key === 'string' && !key.startsWith('_') && !key.startsWith('$'),
-    );
-
-    for (const model of models) {
-      const modelName = model as string;
-      if (this[modelName] && typeof this[modelName].deleteMany === 'function') {
-        await this[modelName].deleteMany();
-      }
-    }
+    await this.$transaction([
+      this.refreshToken.deleteMany(),
+      this.userRole.deleteMany(),
+      this.rolePermission.deleteMany(),
+      this.user.deleteMany(),
+      this.role.deleteMany(),
+      this.permission.deleteMany(),
+      this.organization.deleteMany(),
+    ]);
   }
 }
