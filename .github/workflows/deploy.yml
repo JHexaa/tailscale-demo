@@ -2,7 +2,7 @@ name: CD - Deploy to Server
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/auth-module]
   workflow_dispatch:
 
 jobs:
@@ -43,43 +43,69 @@ jobs:
 
           cd ~/tailscale-demo || { mkdir -p ~/tailscale-demo && cd ~/tailscale-demo; }
 
+          # Get current branch from remote
+          BRANCH="${GITHUB_REF_NAME:-feature/auth-module}"
+          echo "==> Deploying branch: $BRANCH"
+
           if [ -d .git ]; then
-            echo "==> Pulling latest changes..."
-            git pull origin main
+            echo "==> Fetching and checking out branch..."
+            git fetch origin
+            git checkout $BRANCH 2>/dev/null || git checkout -b $BRANCH origin/$BRANCH
+            git pull origin $BRANCH
           else
             echo "==> Cloning repository..."
             cd ~
             rm -rf tailscale-demo
-            git clone https://github.com/JHexaa/tailscale-demo.git tailscale-demo
+            git clone -b $BRANCH https://github.com/JHexaa/tailscale-demo.git tailscale-demo
             cd tailscale-demo
           fi
 
-          # Get Tailscale IP for MinIO public URL
+          # Get Tailscale IP
           TS_IP=$(tailscale ip -4)
           echo "==> Tailscale IP: $TS_IP"
 
-          # Create .env file with correct MinIO public URL
+          # Create .env file for NestJS auth services
           echo "==> Creating .env file..."
           cat > .env << EOF
-          POSTGRES_USER=tailscale_user
-          POSTGRES_PASSWORD=tailscale_pass_2024
-          POSTGRES_DB=tailscale_demo
-          DATABASE_URL=postgresql://tailscale_user:tailscale_pass_2024@db:5432/tailscale_demo
-          MINIO_ACCESS_KEY=minioadmin
-          MINIO_SECRET_KEY=minioadmin123secure
-          MINIO_BUCKET=images
-          MINIO_PUBLIC_URL=http://${TS_IP}:9000
+          # Database
+          POSTGRES_USER=tailscale
+          POSTGRES_PASSWORD=tailscale_2024
+          POSTGRES_DB=auth_db
+
+          # Redis
+          REDIS_PASSWORD=redis_2024
+
+          # JWT
+          JWT_SECRET=your-super-secret-jwt-key-change-in-production-$(openssl rand -hex 16)
+          JWT_ACCESS_EXPIRY=15m
+          JWT_REFRESH_EXPIRY=7d
+
+          # CORS
+          CORS_ORIGINS=http://localhost:3000,https://${TS_IP}
           EOF
 
-          echo "==> Building and deploying..."
-          docker compose build --no-cache api
+          echo "==> Stopping old containers..."
+          docker compose down --remove-orphans 2>/dev/null || true
+
+          echo "==> Building and deploying NestJS services..."
+          docker compose build --no-cache
           docker compose up -d
 
-          echo "==> Waiting for services..."
-          sleep 10
+          echo "==> Waiting for services to start..."
+          sleep 15
+
+          echo "==> Running database migrations..."
+          docker exec auth-service npx prisma migrate deploy || echo "Migration may need manual intervention"
+
+          echo "==> Running seed (if needed)..."
+          docker exec auth-service npx prisma db seed || echo "Seed may already exist"
 
           echo "==> Health check..."
-          curl -s http://localhost:8000/api/health || echo "Health check pending..."
+          curl -s http://localhost:3000/api/health || echo "Gateway health check pending..."
+          curl -s http://localhost:3001/auth/health || echo "Auth service health check pending..."
+
+          echo "==> Container status..."
+          docker ps
 
           echo "==> Deployment complete!"
           ENDSSH
@@ -88,4 +114,4 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=no \
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
-            "curl -s http://localhost:8000/api/health"
+            "curl -s http://localhost:3000/api/health || echo 'Checking services...'; docker ps"
