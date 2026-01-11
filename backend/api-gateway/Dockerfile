@@ -5,7 +5,7 @@ FROM base AS deps
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+RUN npm install
 
 # Build the application
 FROM base AS builder
@@ -29,8 +29,6 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package*.json ./
 
-# Copy proto files
-COPY --from=builder /app/../proto ./proto
 
 USER nestjs
 
